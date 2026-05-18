@@ -107,6 +107,17 @@ export function useRecorder(): UseRecorderReturn {
       setError(null);
       setAudioBlob(null);
       setWaveform([]);
+
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error(
+          "Bu pencerede mikrofon API'si yok. Kayıt için StudyFlow Tauri desktop penceresini kullan."
+        );
+      }
+
+      if (!window.isSecureContext) {
+        throw new Error("Mikrofon için güvenli bağlam gerekli. Uygulamayı Tauri içinde aç.");
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
@@ -142,11 +153,17 @@ export function useRecorder(): UseRecorderReturn {
       setState("recording");
     } catch (e) {
       setState("idle");
-      setError(
-        e instanceof Error
-          ? e.message
-          : "Mikrofon izni gerekli. Sistem ayarlarından izin ver."
-      );
+      if (e instanceof DOMException && e.name === "NotAllowedError") {
+        setError("Mikrofon izni gerekli. Sistem ayarlarından StudyFlow'a izin ver.");
+        return;
+      }
+
+      if (e instanceof DOMException && e.name === "NotFoundError") {
+        setError("Mikrofon bulunamadı. Giriş cihazını kontrol et.");
+        return;
+      }
+
+      setError(e instanceof Error ? e.message : "Mikrofon başlatılamadı.");
     }
   }, []);
 
