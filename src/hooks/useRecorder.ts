@@ -1,5 +1,12 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import type { RecorderState } from "../lib/types";
+
+type RecordingResult = {
+  blob: Blob | null;
+  audioPath: string | null;
+  duration: number;
+};
 
 interface UseRecorderReturn {
   state: RecorderState;
@@ -8,7 +15,7 @@ interface UseRecorderReturn {
   duration: number;
   audioBlob: Blob | null;
   startRecording: () => Promise<void>;
-  stopRecording: () => Promise<Blob>;
+  stopRecording: () => Promise<RecordingResult>;
   pauseRecording: () => void;
   resumeRecording: () => void;
   error: string | null;
@@ -71,6 +78,10 @@ async function resampleTo16kHz(blob: Blob): Promise<Float32Array> {
   return rendered.getChannelData(0);
 }
 
+function isTauriRuntime(): boolean {
+  return "__TAURI_INTERNALS__" in window;
+}
+
 export function useRecorder(): UseRecorderReturn {
   const [state, setState] = useState<RecorderState>("idle");
   const [audioLevel, setAudioLevel] = useState(0);
@@ -85,6 +96,7 @@ export function useRecorder(): UseRecorderReturn {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const nativeRecordingRef = useRef(false);
 
   const stopLevelLoop = useCallback(() => {
     if (levelTimerRef.current) clearInterval(levelTimerRef.current);
@@ -107,11 +119,21 @@ export function useRecorder(): UseRecorderReturn {
       setError(null);
       setAudioBlob(null);
       setWaveform([]);
+      nativeRecordingRef.current = false;
 
       if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error(
-          "Bu pencerede mikrofon API'si yok. Kayıt için StudyFlow Tauri desktop penceresini kullan."
-        );
+        if (!isTauriRuntime()) {
+          throw new Error(
+            "Bu pencerede mikrofon API'si yok. Kayıt için StudyFlow Tauri desktop penceresini kullan."
+          );
+        }
+
+        await invoke("start_native_recording");
+        nativeRecordingRef.current = true;
+        setDuration(0);
+        timerRef.current = setInterval(() => setDuration((d) => d + 1), 1000);
+        setState("recording");
+        return;
       }
 
       if (!window.isSecureContext) {
@@ -167,10 +189,32 @@ export function useRecorder(): UseRecorderReturn {
     }
   }, []);
 
-  const stopRecording = useCallback(async (): Promise<Blob> => {
+  const stopRecording = useCallback(async (): Promise<RecordingResult> => {
     setState("processing");
     stopLevelLoop();
     setAudioLevel(0);
+
+    if (nativeRecordingRef.current) {
+      try {
+        const result = await invoke<{ audioPath: string; duration: number }>(
+          "stop_native_recording",
+          { filename: `studyflow_${Date.now()}.wav` }
+        );
+        nativeRecordingRef.current = false;
+        setState("idle");
+        return {
+          blob: null,
+          audioPath: result.audioPath,
+          duration: result.duration,
+        };
+      } catch (e) {
+        nativeRecordingRef.current = false;
+        setState("idle");
+        const msg = e instanceof Error ? e.message : String(e);
+        setError(msg || "Kayıt durdurulamadı.");
+        throw new Error(msg || "Kayıt durdurulamadı.");
+      }
+    }
 
     return new Promise((resolve, reject) => {
       const mr = mediaRecorderRef.current;
@@ -192,7 +236,11 @@ export function useRecorder(): UseRecorderReturn {
           await audioContextRef.current?.close();
           audioContextRef.current = null;
           setState("idle");
-          resolve(wavBlob);
+          resolve({
+            blob: wavBlob,
+            audioPath: null,
+            duration,
+          });
         } catch (e) {
           setState("idle");
           const msg = e instanceof Error ? e.message : "Ses kaydedilemedi";
@@ -203,7 +251,7 @@ export function useRecorder(): UseRecorderReturn {
 
       mr.stop();
     });
-  }, [stopLevelLoop]);
+  }, [duration, stopLevelLoop]);
 
   const pauseRecording = useCallback(() => {
     if (mediaRecorderRef.current?.state === "recording") {

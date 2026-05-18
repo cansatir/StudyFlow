@@ -25,13 +25,22 @@ export default function App() {
   const handleStop = useCallback(async () => {
     try {
       setFlowError(null);
-      const blob = await recorder.stopRecording();
-      const data = Array.from(new Uint8Array(await blob.arrayBuffer()));
-      const audioPath = await invoke<string>("save_audio", {
-        data,
-        filename: `studyflow_${Date.now()}.wav`,
-      });
-      await sessionMgr.startProcessing(audioPath, recorder.duration, recordingMode);
+      const recording = await recorder.stopRecording();
+      let audioPath = recording.audioPath;
+
+      if (!audioPath && recording.blob) {
+        const data = Array.from(new Uint8Array(await recording.blob.arrayBuffer()));
+        audioPath = await invoke<string>("save_audio", {
+          data,
+          filename: `studyflow_${Date.now()}.wav`,
+        });
+      }
+
+      if (!audioPath) {
+        throw new Error("Ses dosyası oluşturulamadı.");
+      }
+
+      await sessionMgr.startProcessing(audioPath, recording.duration, recordingMode);
       setTab("summary");
     } catch (error) {
       setFlowError(error instanceof Error ? error.message : "Kayıt işlenemedi.");
