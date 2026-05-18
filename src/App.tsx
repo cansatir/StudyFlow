@@ -20,9 +20,11 @@ export default function App() {
   const [showSearch, setShowSearch] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [recordingMode, setRecordingMode] = useState<RecordingMode>("lecture");
+  const [flowError, setFlowError] = useState<string | null>(null);
 
   const handleStop = useCallback(async () => {
     try {
+      setFlowError(null);
       const blob = await recorder.stopRecording();
       const data = Array.from(new Uint8Array(await blob.arrayBuffer()));
       const audioPath = await invoke<string>("save_audio", {
@@ -31,7 +33,8 @@ export default function App() {
       });
       await sessionMgr.startProcessing(audioPath, recorder.duration, recordingMode);
       setTab("summary");
-    } catch {
+    } catch (error) {
+      setFlowError(error instanceof Error ? error.message : "Kayıt işlenemedi.");
       setTab("transcript");
     }
   }, [recorder, recordingMode, sessionMgr]);
@@ -113,9 +116,9 @@ export default function App() {
                   </button>
                 ))}
               </div>
-              {(recorder.error || sessionMgr.error) && (
+              {(recorder.error || sessionMgr.error || flowError) && (
                 <span className="block text-sm text-red-500">
-                  {recorder.error || sessionMgr.error}
+                  {recorder.error || sessionMgr.error || flowError}
                 </span>
               )}
               {statusText && (

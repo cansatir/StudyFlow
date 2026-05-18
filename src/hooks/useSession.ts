@@ -5,8 +5,8 @@ import { listSessions, saveSession, deleteSession } from "../lib/sessions";
 import { checkOllama, summarize, generateTitle } from "../lib/ollama";
 
 const DEFAULT_SETTINGS: Settings = {
-  whisperPath: "/usr/local/bin/whisper-cpp",
-  modelPath: "~/.studyflow/models/ggml-large-v3-turbo.bin",
+  whisperPath: "/opt/homebrew/bin/whisper-cli",
+  modelPath: "/Users/home/.studyflow/models/ggml-large-v3-turbo.bin",
   ollamaModel: "llama3.2",
   language: "tr",
   theme: "dark",
@@ -32,7 +32,19 @@ interface UseSessionReturn {
 function loadSettings(): Settings {
   try {
     const raw = window.localStorage.getItem(SETTINGS_KEY);
-    return raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : DEFAULT_SETTINGS;
+    const settings = raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : DEFAULT_SETTINGS;
+
+    return {
+      ...settings,
+      whisperPath:
+        settings.whisperPath === "/usr/local/bin/whisper-cpp"
+          ? DEFAULT_SETTINGS.whisperPath
+          : settings.whisperPath,
+      modelPath:
+        settings.modelPath === "~/.studyflow/models/ggml-large-v3-turbo.bin"
+          ? DEFAULT_SETTINGS.modelPath
+          : settings.modelPath,
+    };
   } catch {
     return DEFAULT_SETTINGS;
   }
