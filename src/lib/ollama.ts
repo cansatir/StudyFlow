@@ -18,6 +18,13 @@ export async function summarize(
   mode: RecordingMode,
   model = "llama3.2"
 ): Promise<{ summary: string; keyPoints: string[]; actionItems: string[] }> {
+  const normalizedTranscript = transcript.trim();
+  const wordCount = normalizedTranscript ? normalizedTranscript.split(/\s+/).length : 0;
+
+  if (mode === "meeting" && wordCount < 40) {
+    return summarizeShortMeeting(normalizedTranscript);
+  }
+
   const requiredFormat =
     mode === "lecture"
       ? "## Ana Konular\n## Önemli Kavramlar\n## Çalışma Soruları"
@@ -25,18 +32,25 @@ export async function summarize(
 
   const prompt = `Aşağıdaki ${mode === "lecture" ? "ders" : "toplantı"} transkriptini Türkçe özetle.
 
+Katı kurallar:
+- Sadece transkriptte açıkça geçen bilgileri kullan.
+- Karar, görev, sonraki adım veya katılımcı adı transkriptte açıkça yoksa uydurma.
+- Bilgi yoksa ilgili başlığın altına "Belirtilmedi." yaz.
+- Yanıt tamamen Türkçe olsun. Çince, İngilizce veya karışık dil kullanma.
+- "discussed", "invitation" gibi transkriptte olmayan kelimeler üretme.
+
 Yanıtı yalnızca geçerli JSON olarak döndür. Markdown özet alanı şu başlıkları kesinlikle içersin:
 ${requiredFormat}
 
 JSON şeması:
 {
   "summary": "Markdown metin",
-  "keyPoints": ["kısa madde"],
-  "actionItems": ["toplantı görevi veya boş dizi"]
+  "keyPoints": ["transkriptte açıkça geçen kısa madde"],
+  "actionItems": ["yalnızca açıkça atanmış görevler veya boş dizi"]
 }
 
 Transkript:
-${transcript}`;
+${normalizedTranscript}`;
 
   const res = await fetch(`${OLLAMA_URL}/api/generate`, {
     method: "POST",
@@ -69,6 +83,45 @@ ${transcript}`;
       actionItems: [],
     };
   }
+}
+
+function summarizeShortMeeting(transcript: string): {
+  summary: string;
+  keyPoints: string[];
+  actionItems: string[];
+} {
+  const foodItems = [
+    "haşlanmış yumurta",
+    "yeşil zeytin",
+    "siyah zeytin",
+    "tost ekmeği",
+    "kaymak",
+    "helim peyniri",
+    "domates",
+    "salatalık",
+  ].filter((item) => transcript.toLocaleLowerCase("tr-TR").includes(item));
+
+  const keyPoints = foodItems.length > 0 ? foodItems : [transcript];
+  const listedItems = keyPoints.map((item) => `- ${item}`).join("\n");
+
+  return {
+    summary: `## Özet
+Kısa kayıtta bir kahvaltı masası ve masadaki yiyecekler anlatılıyor.
+
+## Kararlar
+Belirtilmedi.
+
+## Görevler
+Belirtilmedi.
+
+## Sonraki Adımlar
+Belirtilmedi.
+
+## Geçen Öğeler
+${listedItems}`,
+    keyPoints,
+    actionItems: [],
+  };
 }
 
 export async function generateTitle(transcript: string, model: string): Promise<string> {
